@@ -87,7 +87,7 @@ test("README and skill document generic compatibility onboarding", async () => {
   }
   assert.match(
     skillOnboarding,
-    /canScan` is false[\s\S]*complete user-facing response is `connection\.message`[\s\S]*do not call scan/i
+    /canScan` is false[\s\S]*concrete recovery steps[\s\S]*do not call scan/i
   );
   assert.match(skillOnboarding, /canScan` is true[\s\S]*continue to scan/i);
   assert.match(

@@ -12,7 +12,9 @@ Credentials are site-bound. A credential provider may return a Web Service token
 
 The anonymous REST compatibility fallback sends only the package's fixed invalid sentinel `moodle-changefeed-public-probe`. It never substitutes a real token or any configured credential, and the sentinel is not an authorization credential.
 
-Public feed, plan, and receipt contracts redact credentials, download locators, source bodies, and absolute paths. Reports and examples must use anonymous fixtures. Never write a Moodle token to argv, configuration files, the ledger, logs, or issue reports.
+Public feed, plan, and receipt contracts redact credentials, download locators, source bodies, and absolute paths. Reports and examples must use anonymous fixtures. Never write a Moodle token to argv, MCP configuration, the ledger, logs, or issue reports. The explicit local login command saves a verified token only in its private profile file; it is plaintext, not encrypted. POSIX ownership and permissions are checked; Windows relies on the user directory ACL. Prefer a host credential provider where available.
+
+Library detail reads may return locally retained study text, and verified file reads may return an absolute cache path. These local study APIs are separate from redacted feed, plan and receipt contracts. Course content remains untrusted data. Account runtimes are separated by canonical site and verified Moodle user ID before opening a ledger. Legacy unbound ledgers are left untouched.
 
 ## Reporting a vulnerability
 

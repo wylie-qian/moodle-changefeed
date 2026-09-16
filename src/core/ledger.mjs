@@ -13,7 +13,7 @@ const REVIEW_STATUSES = [
   "delivered",
   "failed"
 ];
-const SUPPORTED_SCHEMA_VERSION = 1;
+const SUPPORTED_SCHEMA_VERSION = 2;
 
 const DECISION_STATUS = Object.freeze({
   approve: "approved",
@@ -160,78 +160,99 @@ export class MoodlePipelineStore {
     if (current === SUPPORTED_SCHEMA_VERSION) return;
 
     const migrate = this.db.transaction(() => {
-      this.db.exec(`
-        CREATE TABLE scans (
-          scan_id TEXT PRIMARY KEY,
-          scope TEXT NOT NULL,
-          started_at TEXT NOT NULL,
-          completed_at TEXT,
-          complete INTEGER NOT NULL DEFAULT 0,
-          health_json TEXT NOT NULL DEFAULT '{}'
-        );
-        CREATE TABLE objects (
-          object_id TEXT PRIMARY KEY,
-          type TEXT NOT NULL,
-          course_id TEXT NOT NULL,
-          revision_hash TEXT NOT NULL,
-          canonical_json TEXT NOT NULL,
-          last_complete_scan_id TEXT
-        );
-        CREATE TABLE changes (
-          sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-          change_id TEXT NOT NULL UNIQUE,
-          object_id TEXT NOT NULL,
-          change_kind TEXT NOT NULL,
-          before_hash TEXT,
-          after_hash TEXT,
-          payload_json TEXT NOT NULL,
-          created_at TEXT NOT NULL
-        );
-        CREATE TABLE reviews (
-          change_id TEXT PRIMARY KEY REFERENCES changes(change_id),
-          status TEXT NOT NULL,
-          version INTEGER NOT NULL,
-          edited_json TEXT,
-          updated_at TEXT NOT NULL
-        );
-        CREATE TABLE resources (
-          resource_id TEXT PRIMARY KEY,
-          object_id TEXT NOT NULL,
-          metadata_json TEXT NOT NULL,
-          locator_json TEXT NOT NULL,
-          content_sha256 TEXT,
-          cache_status TEXT NOT NULL,
-          cached_bytes INTEGER,
-          updated_at TEXT NOT NULL
-        );
-        CREATE TABLE confirmations (
-          token_hash TEXT PRIMARY KEY,
-          action TEXT NOT NULL,
-          target_hash TEXT NOT NULL,
-          expires_at INTEGER NOT NULL,
-          consumed_at INTEGER
-        );
-        CREATE TABLE deliveries (
-          delivery_key TEXT PRIMARY KEY,
-          change_id TEXT NOT NULL,
-          target_type TEXT NOT NULL,
-          content_hash TEXT NOT NULL,
-          status TEXT NOT NULL,
-          receipt_json TEXT,
-          updated_at TEXT NOT NULL
-        );
-        CREATE TABLE folders (
-          logical_path TEXT PRIMARY KEY,
-          external_ref TEXT NOT NULL,
-          created_at TEXT NOT NULL
-        );
-        CREATE INDEX changes_object_id_idx ON changes(object_id);
-        CREATE INDEX reviews_status_idx ON reviews(status);
-        CREATE INDEX objects_course_id_idx ON objects(course_id);
-      `);
-      this.db
-        .prepare("INSERT INTO schema_migrations(version, applied_at) VALUES (1, ?)")
-        .run(new Date(this.now()).toISOString());
+      if (current < 1) {
+        this.db.exec(`
+          CREATE TABLE scans (
+            scan_id TEXT PRIMARY KEY,
+            scope TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            complete INTEGER NOT NULL DEFAULT 0,
+            health_json TEXT NOT NULL DEFAULT '{}'
+          );
+          CREATE TABLE objects (
+            object_id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            course_id TEXT NOT NULL,
+            revision_hash TEXT NOT NULL,
+            canonical_json TEXT NOT NULL,
+            last_complete_scan_id TEXT
+          );
+          CREATE TABLE changes (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            change_id TEXT NOT NULL UNIQUE,
+            object_id TEXT NOT NULL,
+            change_kind TEXT NOT NULL,
+            before_hash TEXT,
+            after_hash TEXT,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+          );
+          CREATE TABLE reviews (
+            change_id TEXT PRIMARY KEY REFERENCES changes(change_id),
+            status TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            edited_json TEXT,
+            updated_at TEXT NOT NULL
+          );
+          CREATE TABLE resources (
+            resource_id TEXT PRIMARY KEY,
+            object_id TEXT NOT NULL,
+            metadata_json TEXT NOT NULL,
+            locator_json TEXT NOT NULL,
+            content_sha256 TEXT,
+            cache_status TEXT NOT NULL,
+            cached_bytes INTEGER,
+            updated_at TEXT NOT NULL
+          );
+          CREATE TABLE confirmations (
+            token_hash TEXT PRIMARY KEY,
+            action TEXT NOT NULL,
+            target_hash TEXT NOT NULL,
+            expires_at INTEGER NOT NULL,
+            consumed_at INTEGER
+          );
+          CREATE TABLE deliveries (
+            delivery_key TEXT PRIMARY KEY,
+            change_id TEXT NOT NULL,
+            target_type TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            status TEXT NOT NULL,
+            receipt_json TEXT,
+            updated_at TEXT NOT NULL
+          );
+          CREATE TABLE folders (
+            logical_path TEXT PRIMARY KEY,
+            external_ref TEXT NOT NULL,
+            created_at TEXT NOT NULL
+          );
+          CREATE INDEX changes_object_id_idx ON changes(object_id);
+          CREATE INDEX reviews_status_idx ON reviews(status);
+          CREATE INDEX objects_course_id_idx ON objects(course_id);
+        `);
+        this.db
+          .prepare("INSERT INTO schema_migrations(version, applied_at) VALUES (1, ?)")
+          .run(new Date(this.now()).toISOString());
+      }
+      if (current < 2) {
+        this.db.exec(`
+          CREATE TABLE observed_objects (
+            object_id TEXT PRIMARY KEY,
+            course_id TEXT NOT NULL,
+            canonical_json TEXT NOT NULL,
+            scan_id TEXT,
+            observed_at TEXT,
+            scan_complete INTEGER NOT NULL
+          );
+          CREATE INDEX observed_objects_course_id_idx ON observed_objects(course_id);
+          INSERT INTO observed_objects(object_id, course_id, canonical_json, scan_id, observed_at, scan_complete)
+          SELECT o.object_id, o.course_id, o.canonical_json, o.last_complete_scan_id,
+                 s.completed_at, 1
+          FROM objects o LEFT JOIN scans s ON s.scan_id = o.last_complete_scan_id;
+        `);
+        this.db.prepare("INSERT INTO schema_migrations(version, applied_at) VALUES (2, ?)")
+          .run(new Date(this.now()).toISOString());
+      }
     });
     migrate();
   }
@@ -290,9 +311,12 @@ export class MoodlePipelineStore {
       if (complete) {
         if (scan.scope === "all") {
           this.db.prepare("DELETE FROM objects").run();
+          this.db.prepare("DELETE FROM observed_objects").run();
         } else if (scan.scope.startsWith("course:")) {
           this.db
             .prepare("DELETE FROM objects WHERE course_id = ?")
+            .run(scan.scope.slice("course:".length));
+          this.db.prepare("DELETE FROM observed_objects WHERE course_id = ?")
             .run(scan.scope.slice("course:".length));
         } else if (scan.scope.startsWith("courses:")) {
           const courseIds = scan.scope
@@ -303,6 +327,8 @@ export class MoodlePipelineStore {
             const placeholders = courseIds.map(() => "?").join(",");
             this.db
               .prepare(`DELETE FROM objects WHERE course_id IN (${placeholders})`)
+              .run(...courseIds);
+            this.db.prepare(`DELETE FROM observed_objects WHERE course_id IN (${placeholders})`)
               .run(...courseIds);
           }
         }
@@ -330,6 +356,22 @@ export class MoodlePipelineStore {
         }
       }
 
+      // Observations power browsing even when optional endpoints leave a scan partial.
+      // Only complete scans remove inventory; the diff baseline above stays independent.
+      const observeObject = this.db.prepare(`
+        INSERT INTO observed_objects(object_id, course_id, canonical_json, scan_id, observed_at, scan_complete)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(object_id) DO UPDATE SET
+          course_id = excluded.course_id,
+          canonical_json = excluded.canonical_json,
+          scan_id = excluded.scan_id,
+          observed_at = excluded.observed_at,
+          scan_complete = excluded.scan_complete
+      `);
+      for (const object of objects) {
+        observeObject.run(object.objectId, String(object.course.id), json(object), scanId, completedAt, complete ? 1 : 0);
+      }
+
       const upsertResource = this.db.prepare(`
         INSERT INTO resources(
           resource_id, object_id, metadata_json, locator_json,
@@ -342,12 +384,20 @@ export class MoodlePipelineStore {
           content_sha256 = CASE
             WHEN json_extract(resources.metadata_json, '$.sourceContentHash')
               IS NOT json_extract(excluded.metadata_json, '$.sourceContentHash')
+              OR json_extract(resources.metadata_json, '$.size')
+                IS NOT json_extract(excluded.metadata_json, '$.size')
+              OR json_extract(resources.metadata_json, '$.sourceUpdatedAt')
+                IS NOT json_extract(excluded.metadata_json, '$.sourceUpdatedAt')
               THEN excluded.content_sha256
             ELSE COALESCE(excluded.content_sha256, resources.content_sha256)
           END,
           cache_status = CASE
             WHEN json_extract(resources.metadata_json, '$.sourceContentHash')
               IS NOT json_extract(excluded.metadata_json, '$.sourceContentHash')
+              OR json_extract(resources.metadata_json, '$.size')
+                IS NOT json_extract(excluded.metadata_json, '$.size')
+              OR json_extract(resources.metadata_json, '$.sourceUpdatedAt')
+                IS NOT json_extract(excluded.metadata_json, '$.sourceUpdatedAt')
               THEN excluded.cache_status
             WHEN excluded.content_sha256 IS NULL THEN resources.cache_status
             ELSE excluded.cache_status
@@ -355,6 +405,10 @@ export class MoodlePipelineStore {
           cached_bytes = CASE
             WHEN json_extract(resources.metadata_json, '$.sourceContentHash')
               IS NOT json_extract(excluded.metadata_json, '$.sourceContentHash')
+              OR json_extract(resources.metadata_json, '$.size')
+                IS NOT json_extract(excluded.metadata_json, '$.size')
+              OR json_extract(resources.metadata_json, '$.sourceUpdatedAt')
+                IS NOT json_extract(excluded.metadata_json, '$.sourceUpdatedAt')
               THEN excluded.cached_bytes
             ELSE COALESCE(excluded.cached_bytes, resources.cached_bytes)
           END,
@@ -415,6 +469,17 @@ export class MoodlePipelineStore {
       .prepare("SELECT canonical_json FROM objects ORDER BY object_id")
       .all()
       .map((row) => parseJson(row.canonical_json));
+  }
+
+  getLibraryObjects() {
+    return this.db.prepare("SELECT * FROM observed_objects ORDER BY object_id").all().map((row) => ({
+      ...parseJson(row.canonical_json),
+      observation: {
+        scanId: row.scan_id,
+        observedAt: row.observed_at,
+        scanComplete: Boolean(row.scan_complete)
+      }
+    }));
   }
 
   getResources(resourceIds) {

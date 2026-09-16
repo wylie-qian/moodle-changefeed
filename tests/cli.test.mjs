@@ -87,7 +87,7 @@ test("public config reports credential presence without exposing values", () => 
   });
 
   assert.equal(config.siteUrl, "https://moodle.example.edu");
-  assert.equal(config.dataDir, "/tmp/changefeed-config/.data");
+  assert.equal(config.dataDir, path.resolve("/tmp/changefeed-config", ".data"));
   assert.deepEqual(config.credentialStatus, {
     webServiceToken: "configured",
     icsUrl: "configured"

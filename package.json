@@ -35,7 +35,8 @@
     "test": "node --test",
     "demo": "node src/cli/main.mjs demo --fixture anonymous/basic",
     "audit:public": "node scripts/public-audit.mjs",
-    "verify:release": "node scripts/verify-release.mjs"
+    "verify:release": "node scripts/verify-release.mjs",
+    "setup:codex": "node scripts/print-codex-config.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

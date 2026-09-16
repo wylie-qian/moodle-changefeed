@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — portable onboarding and study library
+
+- Add local browser callback/token login, private account profiles and identity-separated runtimes.
+- Add live course listing, current material search, item text and verified cached-file access through CLI/MCP.
+- Preserve partial observations separately from the complete diff baseline; report observation freshness.
+- Document executable Codex onboarding and generate absolute-path TOML configuration.
+- Bound Web Service calls, degrade optional ICS failures and repair corrupt cache objects without overwriting unknown paths.
+- Retain bounded study text locally; public feeds and delivery contracts remain redacted.
+- Existing unbound data directories are not migrated automatically. The local ledger migration is additive; back up existing ledgers before upgrading.
+
+
 All notable changes to this project will be documented here.
 
 ## Unreleased

@@ -1,4 +1,7 @@
 import path from "node:path";
+import { getAccountDataDir } from "./auth/profiles.mjs";
+import { MoodleLibraryService } from "./core/library.mjs";
+import { z } from "zod";
 
 import { LocalArchiveAdapter } from "./adapters/local-archive/index.mjs";
 import { MoodleIcsAdapter } from "./adapters/moodle-ics/index.mjs";
@@ -53,6 +56,19 @@ export function restrictSnapshotToDomains(snapshot, enabledDomains) {
 
 export async function invokeRuntimeCommand(runtime, command, input = {}) {
   switch (command) {
+    case "courses": {
+      const query = z.object({query: z.string().max(200).optional(), offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(100).default(30)}).strict().parse(input);
+      const site = await runtime.client.getSiteInfo();
+      const courses = await runtime.client.getUserCourses(site.userid);
+      const items = courses.map(course => ({ id: String(course.id), code: String(course.shortname || ""), name: String(course.fullname || course.shortname || "") }))
+        .filter(course => !query.query || `${course.code} ${course.name}`.toLowerCase().includes(query.query.toLowerCase()))
+        .sort((a,b) => a.id.localeCompare(b.id));
+      const next = query.offset + query.limit;
+      return {items: items.slice(query.offset, next), total: items.length, nextOffset: next < items.length ? next : null};
+    }
+    case "library": return runtime.library.list(input);
+    case "item": return runtime.library.getItem(input);
+    case "read": return runtime.library.readResource(input);
     case "sync":
       return runtime.service.scan(input);
     case "feed":
@@ -136,6 +152,7 @@ export function createStandaloneRuntime(
       store,
       client,
       resourceCache,
+      library: new MoodleLibraryService({ store, resourceCache }),
       service,
       coordinator,
       close() {
@@ -146,4 +163,18 @@ export function createStandaloneRuntime(
     store.close();
     throw error;
   }
+}
+
+// Entry points verify identity before opening any account-specific ledger or cache.
+// Legacy unbound data is deliberately not migrated into a newly identified account.
+export async function createAuthenticatedRuntime(config, options = {}) {
+  if (options.credentialProvider?.siteKey !== config.siteUrl) throw new Error("Credential provider must be bound to the configured Moodle site");
+  const client = new MoodleMobileClient({ siteKey: config.siteUrl, ...options });
+  const info = await client.getSiteInfo();
+  const userId = String(info?.userid ?? "");
+  if (!/^[1-9][0-9]*$/.test(userId)) throw new Error("Moodle did not return a valid account identity");
+  if (config.userId && String(config.userId) !== userId) throw new Error("Moodle account changed; create a separate profile");
+  const dataDir = config.identityScoped ? config.dataDir : getAccountDataDir({siteUrl: config.siteUrl, userId, dataRoot: path.join(config.dataDir, "accounts")});
+  const archiveRoot = config.identityScoped ? config.archiveRoot : getAccountDataDir({siteUrl: config.siteUrl, userId, dataRoot: path.join(config.archiveRoot, "accounts")});
+  return createStandaloneRuntime({ ...config, dataDir, archiveRoot }, options);
 }

@@ -6,12 +6,9 @@ import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
-import {
-  createEnvironmentCredentialProvider,
-  loadEntryPublicConfig
-} from "../config.mjs";
 import { probeMoodleEntry } from "../entry-probe.mjs";
-import { createStandaloneRuntime } from "../runtime.mjs";
+import { createAuthenticatedRuntime } from "../runtime.mjs";
+import { resolveEntryConfig } from "../entry-config.mjs";
 import { registerMoodleChangefeedTools } from "./tools.mjs";
 
 export function createMoodleChangefeedMcpServer({
@@ -24,7 +21,7 @@ export function createMoodleChangefeedMcpServer({
     { name: "moodle-changefeed", version: "0.1.0-dev.0" },
     {
       instructions:
-        "Call agent_bootstrap first. Moodle is read-only input; review writes only local state. Delivery requires a prepared plan and host-owned confirmation."
+        "Call agent_bootstrap first. Use list_moodle_courses for live courses, scan_moodle_changes then search_moodle_library for existing materials (an empty change feed does not mean no files). Use get_moodle_library_item, cache_moodle_resources and read_moodle_resource for files. Login requires a local user terminal; never request tokens in chat. Moodle is read-only input; review writes only local state. Delivery requires a prepared plan and host-owned confirmation."
     }
   );
   registerMoodleChangefeedTools({
@@ -42,18 +39,7 @@ export async function startMoodleChangefeedStdio({
   cwd = process.cwd(),
   transport = new StdioServerTransport()
 } = {}) {
-  const { publicConfig, requestedSiteUrl } = loadEntryPublicConfig({ argv, env, cwd });
-  let credentialProvider;
-  try {
-    credentialProvider = publicConfig.siteUrl
-      ? createEnvironmentCredentialProvider(env)
-      : null;
-  } catch (error) {
-    if (!(error instanceof TypeError) || !/^Moodle site\b/.test(String(error.message))) {
-      throw error;
-    }
-    credentialProvider = null;
-  }
+  const { publicConfig, requestedSiteUrl, credentialProvider } = await resolveEntryConfig({argv, env, cwd});
   const server = createMoodleChangefeedMcpServer({
     publicConfig,
     defaultSiteUrl: requestedSiteUrl,
@@ -61,7 +47,7 @@ export async function startMoodleChangefeedStdio({
       siteUrl,
       credentialProvider: useConfiguredCredential ? credentialProvider : null
     }),
-    createRuntime: async () => createStandaloneRuntime(publicConfig, {
+    createRuntime: async () => createAuthenticatedRuntime(publicConfig, {
       credentialProvider,
       confirmationProvider: null
     })

@@ -104,7 +104,8 @@ export class MoodleMobileClient {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body,
-          redirect: "manual"
+          redirect: "manual",
+          signal: AbortSignal.timeout(30000)
         }
       );
     } catch {
@@ -192,7 +193,7 @@ export class MoodleMobileClient {
       response = await this.fetchImpl(url.toString(), {
         method: "GET",
         redirect: "manual",
-        signal
+        signal: signal || AbortSignal.timeout(60000)
       });
     } catch {
       throw new MoodleWebServiceError("Moodle resource network request failed");
