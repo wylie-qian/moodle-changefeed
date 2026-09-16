@@ -18,7 +18,7 @@ cd moodle-changefeed
 npm ci
 ```
 
-Use this checkout's absolute path when configuring clients. The examples below run from its root; no globally installed command is required. The SQLite dependency includes native code: if installation cannot obtain a binary for your Node/OS combination, npm may require the platform's native build tools. Test your actual environment before relying on it.
+Use this checkout's absolute path when configuring clients. The examples below run from its root; no globally installed command is required. The SQLite dependency includes native code: if installation cannot obtain a binary for your Node/OS combination, npm may require the platform's native build tools. On Windows, use Visual Studio 2022 Build Tools with the Desktop development with C++ workload and Python if a source build is needed. CI uses `windows-2022`: the Node 22 bundled node-gyp currently failed to detect Visual Studio 2026 on `windows-latest`. Test your actual environment before relying on it.
 
 ## 60-second anonymous demo
 
