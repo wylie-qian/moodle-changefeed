@@ -104,9 +104,16 @@ async function inspectGitMetadata(root, denylist, findings) {
 }
 
 async function npmPackFiles(root) {
+  // Windows npm is a .cmd shim and cannot be spawned directly with execFile.
+  // Use npm's JS entry when launched via npm, otherwise a fixed shell command.
+  const npmEntry = process.env.npm_execpath;
+  const executable = npmEntry ? process.execPath : process.platform === "win32" ? (process.env.ComSpec || "cmd.exe") : "npm";
+  const args = npmEntry ? [npmEntry, "pack", "--json", "--dry-run", "--ignore-scripts"]
+    : process.platform === "win32" ? ["/d", "/s", "/c", "npm pack --json --dry-run --ignore-scripts"]
+      : ["pack", "--json", "--dry-run", "--ignore-scripts"];
   const { stdout } = await execFileAsync(
-    "npm",
-    ["pack", "--json", "--dry-run", "--ignore-scripts"],
+    executable,
+    args,
     {
       cwd: root,
       encoding: "utf8",

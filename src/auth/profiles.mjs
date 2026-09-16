@@ -4,14 +4,14 @@ import path from "node:path";
 import { canonicalSiteKey, sha256Hex } from "../core/contracts.mjs";
 
 function applicationRoot({ platform = process.platform, env = process.env, home = os.homedir() } = {}) {
-  if (platform === "darwin") return path.join(home, "Library", "Application Support", "moodle-changefeed");
+  if (platform === "darwin") return path.posix.join(home, "Library", "Application Support", "moodle-changefeed");
   if (platform === "win32") return path.win32.join(env.LOCALAPPDATA || path.win32.join(home, "AppData", "Local"), "moodle-changefeed");
-  return path.join(env.XDG_DATA_HOME || path.join(home, ".local", "share"), "moodle-changefeed");
+  return path.posix.join(env.XDG_DATA_HOME || path.posix.join(home, ".local", "share"), "moodle-changefeed");
 }
 
 export function getProfileRoot(options = {}) {
   const env = options.env || process.env;
-  const paths = (options.platform || process.platform) === "win32" ? path.win32 : path;
+  const paths = (options.platform || process.platform) === "win32" ? path.win32 : path.posix;
   return env.MOODLE_CHANGEFEED_PROFILE_ROOT || paths.join(applicationRoot(options), "profiles");
 }
 

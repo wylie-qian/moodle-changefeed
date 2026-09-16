@@ -26,7 +26,7 @@ async function listSourceFiles(root, relative = "") {
     left.name.localeCompare(right.name)
   )) {
     if (entry.name === ".git" || entry.name === "node_modules") continue;
-    const childRelative = path.join(relative, entry.name);
+    const childRelative = path.posix.join(relative, entry.name);
     const childPath = path.join(root, childRelative);
     const metadata = await lstat(childPath);
     if (metadata.isSymbolicLink()) {
