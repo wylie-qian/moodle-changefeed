@@ -39,7 +39,7 @@ test("resource locators reject unsafe origins, schemes, paths, and redirect para
   }
 });
 
-test("normalization is deterministic and retains only hashes of private bodies", () => {
+test("normalization retains bounded study text locally without credential locators", () => {
   const input = {
     siteKey: SITE_KEY,
     capturedAt: "2026-08-01T00:00:00.000Z",
@@ -91,7 +91,7 @@ test("normalization is deterministic and retains only hashes of private bodies",
   const serialized = JSON.stringify(first);
   assert.doesNotMatch(
     serialized,
-    /private assignment body|private announcement body|private-token|wstoken/
+    /private-token|wstoken/
   );
 });
 

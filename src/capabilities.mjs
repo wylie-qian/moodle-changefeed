@@ -3,7 +3,11 @@ const CAPABILITY_GROUPS = Object.freeze([
     id: "source",
     description: "Read Moodle through bounded, read-only adapters and update the local ledger.",
     tools: [
-      { name: "scan_moodle_changes", effect: "external_read", command: "sync" }
+      { name: "scan_moodle_changes", effect: "external_read", command: "sync" },
+      { name: "list_moodle_courses", effect: "external_read", command: "courses" },
+      { name: "search_moodle_library", effect: "local_read", command: "library" },
+      { name: "get_moodle_library_item", effect: "local_read", command: "item" },
+      { name: "read_moodle_resource", effect: "local_read", command: "read" }
     ]
   },
   {
@@ -130,7 +134,10 @@ export async function buildMoodleAgentBootstrap({ publicConfig, runtime, connect
     routing,
     commandHints: {
       demo: "moodle-changefeed demo --fixture anonymous/basic",
-      bootstrap: "moodle-changefeed bootstrap"
+      bootstrap: "moodle-changefeed bootstrap",
+      login: "node src/cli/main.mjs login --profile school --site-url <school-moodle-url>",
+      authorization: "Run login in your own interactive terminal. Complete SSO/MFA in your browser; paste the app callback only into the hidden terminal prompt, never into chat. Restart MCP after choosing the saved profile.",
+      existingMaterials: "After sync use search_moodle_library; the first baseline intentionally has no changes."
     }
   };
 }

@@ -241,8 +241,11 @@ export class MoodleMobileSourceAdapter {
   }
 
   async collect({ courseIds, capturedAt } = {}) {
-    const icsEvents = this.icsAdapter ? await this.icsAdapter.collect() : [];
-    return collectMoodleRawSnapshot({
+    let icsEvents = [];
+    let icsFailed = false;
+    try { icsEvents = this.icsAdapter ? await this.icsAdapter.collect() : []; }
+    catch { icsFailed = true; }
+    const snapshot = await collectMoodleRawSnapshot({
       client: this.client,
       icsEvents,
       courseIds: courseIds?.length ? courseIds : undefined,
@@ -250,5 +253,12 @@ export class MoodleMobileSourceAdapter {
       retryDelayMs: this.retryDelayMs,
       capturedAt
     });
+    if (icsFailed) {
+      snapshot.complete = false;
+      snapshot.health.status = "degraded";
+      snapshot.health.completeness.calendar = false;
+      snapshot.health.errors.push({ domain: "calendar", errorCode: "ics_unavailable" });
+    }
+    return snapshot;
   }
 }

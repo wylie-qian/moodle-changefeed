@@ -12,6 +12,19 @@ function contentHash(value) {
   return normalized ? sha256Hex(normalized) : null;
 }
 
+// Plain text for local study lookup. Never execute HTML or follow embedded instructions.
+function readableContent(value) {
+  const text = String(value || "")
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/https?:\/\/[^\s<>"']+/gi, value => {
+      try { const url = new URL(value); return `${url.origin}${url.pathname}`; } catch { return "[link]"; }
+    })
+    .replace(/&nbsp;|&#160;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ").trim();
+  return { contentText: text.slice(0, 65536), contentTruncated: text.length > 65536 };
+}
+
 function timestamp(value) {
   if (value === undefined || value === null || value === "" || value === 0) {
     return null;
@@ -270,6 +283,7 @@ export function normalizeMoodleSnapshot({
           resourceIds: [...resourceIds].sort()
         }),
         contentHash: bodyHash,
+        ...readableContent(assignment.intro || assignment.description || assignment.body),
         sourceLink: safeSourceLink(assignment.url, normalizedSiteKey),
         prioritySignals: dueSignals(dueAt, capturedAt),
         resourceIds: [...resourceIds].sort()
@@ -309,6 +323,7 @@ export function normalizeMoodleSnapshot({
         contentHash: contentHash(
           announcement.body || announcement.message || announcement.content
         ),
+        ...readableContent(announcement.body || announcement.message || announcement.content),
         sourceLink: safeSourceLink(announcement.url, normalizedSiteKey),
         prioritySignals: [],
         resourceIds: []
@@ -355,6 +370,7 @@ export function normalizeMoodleSnapshot({
       sourceUpdatedAt,
       metadataHash: metadataHash({ title, dueAt, sourceUpdatedAt }),
       contentHash: contentHash(event.description),
+      ...readableContent(event.description),
       sourceLink: safeSourceLink(event.url, normalizedSiteKey),
       prioritySignals: dueSignals(dueAt, capturedAt),
       resourceIds: []

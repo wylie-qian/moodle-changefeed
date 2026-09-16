@@ -9,7 +9,6 @@ import { createInterface } from "node:readline/promises";
 import { LocalArchiveAdapter } from "../adapters/local-archive/index.mjs";
 import { MoodleResourceCache } from "../cache/resource-cache.mjs";
 import {
-  createEnvironmentCredentialProvider,
   loadPublicConfig
 } from "../config.mjs";
 import {
@@ -22,9 +21,11 @@ import { normalizeMoodleSnapshot } from "../core/normalize.mjs";
 import { MoodlePipelineService } from "../core/service.mjs";
 import { probeMoodleEntry } from "../entry-probe.mjs";
 import {
-  createStandaloneRuntime,
   invokeRuntimeCommand
 } from "../runtime.mjs";
+import { resolveEntryConfig } from "../entry-config.mjs";
+import { login } from "./login.mjs";
+import { createAuthenticatedRuntime } from "../runtime.mjs";
 import { CLI_HELP, parseCli } from "./parse.mjs";
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -197,24 +198,6 @@ function isInvalidSiteConfigError(error) {
   return error instanceof TypeError && /^Moodle site\b/.test(String(error.message));
 }
 
-function createSiteBoundEnvironmentCredentialProvider(env, siteUrl) {
-  const unbound = Object.freeze({
-    siteKey: null,
-    async getWebServiceToken() {
-      return null;
-    },
-    async getIcsUrl() {
-      return null;
-    }
-  });
-  try {
-    const provider = createEnvironmentCredentialProvider(env);
-    return provider.siteKey === siteUrl ? provider : unbound;
-  } catch {
-    return unbound;
-  }
-}
-
 export async function runCli({
   argv = process.argv.slice(2),
   env = process.env,
@@ -224,7 +207,7 @@ export async function runCli({
   confirmationProvider = null,
   fetchImpl = globalThis.fetch,
   probeEntry = probeMoodleEntry,
-  createRuntime = createStandaloneRuntime
+  createRuntime = createAuthenticatedRuntime
 } = {}) {
   const parsed = parseCli(argv);
   if (parsed.command === "help") {
@@ -236,10 +219,20 @@ export async function runCli({
     writeJson(output, result);
     return result;
   }
+  if (parsed.command === "login") {
+    const result = await login({config: loadPublicConfig({argv: parsed.configArgv, env, cwd}), method: parsed.input.method,
+      env, input, output, fetchImpl});
+    writeJson(output, result);
+    return result;
+  }
   const requestedSiteUrl = parsed.siteUrl ?? env.MOODLE_CHANGEFEED_SITE_URL ?? null;
   let config;
+  let credentialProvider;
   try {
-    config = loadPublicConfig({ argv: parsed.configArgv, env, cwd });
+    const resolved = await resolveEntryConfig({argv: parsed.configArgv, env, cwd});
+    config = resolved.publicConfig;
+    credentialProvider = resolved.credentialProvider;
+    if (requestedSiteUrl && !config.siteUrl) throw new TypeError("Moodle site URL is invalid");
   } catch (error) {
     if (!["bootstrap", "sync"].includes(parsed.command) || !isInvalidSiteConfigError(error)) {
       throw error;
@@ -255,7 +248,6 @@ export async function runCli({
     writeJson(output, result);
     return result;
   }
-  const credentialProvider = createSiteBoundEnvironmentCredentialProvider(env, config.siteUrl);
   if (parsed.command === "bootstrap") {
     const connection = await probeEntry({
       siteUrl: config.siteUrl,
@@ -285,7 +277,12 @@ export async function runCli({
   const interactiveProvider = usesCliPrompt
     ? new MemoryConfirmationProvider()
     : confirmationProvider;
-  const runtime = createRuntime(config, {
+  if (parsed.command === "delivery.execute" && !interactiveProvider) {
+    const error = new Error("A host confirmation provider is required for non-interactive delivery");
+    error.code = "confirmation_provider_required";
+    throw error;
+  }
+  const runtime = await createRuntime(config, {
     credentialProvider,
     confirmationProvider: interactiveProvider,
     fetchImpl

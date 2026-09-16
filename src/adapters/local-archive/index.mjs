@@ -134,7 +134,7 @@ export class LocalArchiveAdapter {
       ) {
         throw new ChangefeedError("archive_source_changed", "Cached resource verification failed");
       }
-      const handle = await open(stagingPath, "r");
+      const handle = await open(stagingPath, "r+");
       try {
         await handle.sync();
       } finally {

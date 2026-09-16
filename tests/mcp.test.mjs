@@ -13,6 +13,10 @@ import {
 } from "../src/mcp/server.mjs";
 
 const TOOL_NAMES = [
+  "list_moodle_courses",
+  "search_moodle_library",
+  "get_moodle_library_item",
+  "read_moodle_resource",
   "agent_bootstrap",
   "cache_moodle_resources",
   "deliver_moodle_batch",
@@ -58,7 +62,7 @@ function runtime() {
   };
 }
 
-test("standalone MCP exposes only ten bounded tools", async () => {
+test("standalone MCP exposes fourteen bounded tools", async () => {
   const server = createMoodleChangefeedMcpServer({
     createRuntime: async () => runtime(),
     probeEntry: async () => COMPATIBLE,
@@ -74,7 +78,7 @@ test("standalone MCP exposes only ten bounded tools", async () => {
   await client.connect(clientTransport);
   try {
     const result = await client.listTools();
-    assert.equal(result.tools.length, 10);
+    assert.equal(result.tools.length, 14);
     assert.deepEqual(result.tools.map(({ name }) => name).sort(), TOOL_NAMES);
     const delivery = result.tools.find(({ name }) => name === "deliver_moodle_batch");
     assert.deepEqual(delivery.inputSchema.required.sort(), ["confirmationToken", "planHash"]);

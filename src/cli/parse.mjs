@@ -1,5 +1,6 @@
 const CONFIG_VALUE_FLAGS = new Set([
   "--site-url",
+  "--profile",
   "--data-dir",
   "--archive-root",
   "--domains",
@@ -55,8 +56,8 @@ function parseOptions(argv, definitions) {
     if (typeof value !== "string" || value.length === 0 || value.startsWith("--")) {
       throw new TypeError(`${flag} requires a value`);
     }
-    const parsed = definition.kind === "integer" ? Number(value) : value;
-    if (definition.kind === "integer" && (!Number.isSafeInteger(parsed) || parsed < 1)) {
+    const parsed = ["integer", "offset"].includes(definition.kind) ? Number(value) : value;
+    if (["integer", "offset"].includes(definition.kind) && (!Number.isSafeInteger(parsed) || parsed < (definition.kind === "offset" ? 0 : 1))) {
       throw new TypeError(`${flag} requires a positive integer`);
     }
     if (definition.multiple) {
@@ -84,6 +85,29 @@ export function parseCli(argv = []) {
   if (["help", "--help", "-h"].includes(first)) {
     if (commandArgv.length > 1) throw new TypeError("help does not accept arguments");
     return { command: "help", input: {}, configArgv };
+  }
+  if (first === "login") {
+    return { command: "login", input: parseOptions(commandArgv.slice(1), {
+      "--method": { key: "method", kind: "string" }
+    }), configArgv, siteUrl };
+  }
+  if (first === "courses" || first === "library") {
+    return { command: first, input: parseOptions(commandArgv.slice(1), {
+      "--query": { key: "query", kind: "string" },
+      ...(first === "library" ? { "--course-id": { key: "courseId", kind: "string" },
+      "--type": { key: "type", kind: "string" } } : {}),
+      "--offset": { key: "offset", kind: "offset" },
+      "--limit": { key: "limit", kind: "integer" }
+    }), configArgv };
+  }
+  if (first === "item" || first === "read") {
+    const id = requireId(second, "object or resource id");
+    const input = first === "item" ? { objectId: id } : { resourceId: id };
+    Object.assign(input, parseOptions(commandArgv.slice(2), first === "read" ? {
+      "--text": { key: "includeText", kind: "boolean" },
+      "--max-text-bytes": { key: "maxTextBytes", kind: "integer" }
+    } : {}));
+    return { command: first, input, configArgv };
   }
   if (first === "bootstrap") {
     if (commandArgv.length > 1) throw new TypeError("bootstrap does not accept arguments");
@@ -178,7 +202,12 @@ export function parseCli(argv = []) {
 }
 
 export const CLI_HELP = `moodle-changefeed commands:
+  login --profile <name> --site-url <https-url> [--method browser|token]
   bootstrap
+  courses [--query <text>] [--limit <n>]
+  library [--query <text>] [--course-id <id>] [--limit <n>]
+  item <object-id>
+  read <resource-id> [--text]
   sync [--course-id <id>]
   feed [--limit <n>] [--review-status <status>]
   review show <id>
@@ -189,4 +218,5 @@ export const CLI_HELP = `moodle-changefeed commands:
   status
   demo --fixture anonymous/basic
 
-Secrets: MOODLE_CHANGEFEED_TOKEN and MOODLE_CHANGEFEED_ICS_URL only.`;
+Credentials: use login in your own terminal, then --profile <name>.
+Host credentials: MOODLE_CHANGEFEED_SITE_URL with MOODLE_CHANGEFEED_TOKEN; optional MOODLE_CHANGEFEED_ICS_URL.`;

@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
-  chmodSync,
   createWriteStream,
-  existsSync,
+  constants,
   mkdirSync
 } from "node:fs";
-import { rename, unlink } from "node:fs/promises";
+import { link, lstat, open, rename, unlink } from "node:fs/promises";
+import { withProcessLock } from "../core/process-lock.mjs";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -78,12 +78,65 @@ export class MoodleResourceCache {
   }
 
   resolveCachedPath(resource) {
-    if (!resource?.contentSha256 || resource.cacheStatus !== "cached") return null;
+    if (!/^[a-f0-9]{64}$/.test(resource?.contentSha256 || "") || resource.cacheStatus !== "cached") return null;
     return path.join(
       this.cacheRoot,
       resource.contentSha256.slice(0, 2),
       resource.contentSha256
     );
+  }
+
+  async #checkDirectories() {
+    for (const directory of [this.privateRoot, this.stagingDir, path.dirname(this.cacheRoot), this.cacheRoot]) {
+      const stat = await lstat(directory);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) throw cacheError("unsafe_cache_path");
+    }
+  }
+
+  async #withObjectLock(digest, operation) {
+    await this.#checkDirectories();
+    return withProcessLock(path.join(this.privateRoot, `cache-${digest}.lock`), operation,
+      { label: "Moodle cache", staleMs: 600_000 });
+  }
+
+  // Only generated hash paths are inspected. Invalid regular files are preserved,
+  // not overwritten; symlinks and directories are left untouched and rejected.
+  async #verifyOrPreserve(digest, expectedBytes) {
+    const directory = path.join(this.cacheRoot, digest.slice(0, 2));
+    const target = path.join(directory, digest);
+    try {
+      const parent = await lstat(directory);
+      if (!parent.isDirectory() || parent.isSymbolicLink()) throw cacheError("unsafe_cache_path");
+    } catch (error) { if (error.code === "ENOENT") return false; throw error; }
+    let stat;
+    try { stat = await lstat(target); }
+    catch (error) { if (error.code === "ENOENT") return false; throw error; }
+    if (!stat.isFile() || stat.isSymbolicLink()) throw cacheError("unsafe_cache_path");
+    let valid = Number.isSafeInteger(expectedBytes) && expectedBytes >= 0 &&
+      stat.size === expectedBytes && stat.size <= this.maxFileBytes;
+    if (valid) {
+      const handle = await open(target, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+      try {
+        const current = await handle.stat();
+        if (!current.isFile() || current.ino !== stat.ino || current.dev !== stat.dev) throw cacheError("unsafe_cache_path");
+        const hash = createHash("sha256");
+        let bytes = 0;
+        for await (const chunk of handle.createReadStream({ autoClose: false })) {
+          bytes += chunk.length;
+          if (bytes > expectedBytes) { valid = false; break; }
+          hash.update(chunk);
+        }
+        valid = valid && bytes === expectedBytes && hash.digest("hex") === digest;
+      } finally { await handle.close(); }
+    }
+    if (!valid) {
+      const current = await lstat(target);
+      if (!current.isFile() || current.isSymbolicLink() || current.ino !== stat.ino || current.dev !== stat.dev) {
+        throw cacheError("unsafe_cache_path");
+      }
+      await rename(target, path.join(this.stagingDir, `${digest}-${randomUUID()}.corrupt`));
+    }
+    return valid;
   }
 
   #record(resourceId, { sha256: digest, bytes, cacheStatus }) {
@@ -138,14 +191,16 @@ export class MoodleResourceCache {
         continue;
       }
       const existingPath = this.resolveCachedPath(resource);
-      if (existingPath && existsSync(existingPath)) {
-        items.push({
-          resourceId,
-          status: "already_cached",
-          sha256: resource.contentSha256,
-          bytes: resource.cachedBytes,
-          warnings: []
-        });
+      try {
+        if (existingPath && await this.#withObjectLock(resource.contentSha256,
+          () => this.#verifyOrPreserve(resource.contentSha256, resource.cachedBytes))) {
+          items.push({ resourceId, status: "already_cached", sha256: resource.contentSha256,
+            bytes: resource.cachedBytes, warnings: [] });
+          continue;
+        }
+        await this.#checkDirectories();
+      } catch {
+        items.push(this.#quarantine(resourceId, "unsafe_cache_path"));
         continue;
       }
 
@@ -233,13 +288,24 @@ export class MoodleResourceCache {
       const contentDigest = digest.digest("hex");
       const targetDirectory = path.join(this.cacheRoot, contentDigest.slice(0, 2));
       const targetPath = path.join(targetDirectory, contentDigest);
-      mkdirSync(targetDirectory, { recursive: true, mode: 0o700 });
-      if (existsSync(targetPath)) {
+      try {
+        await this.#withObjectLock(contentDigest, async () => {
+          const valid = await this.#verifyOrPreserve(contentDigest, observedBytes);
+          if (!valid) {
+            mkdirSync(targetDirectory, { recursive: true, mode: 0o700 });
+            const parent = await lstat(targetDirectory);
+            if (!parent.isDirectory() || parent.isSymbolicLink()) throw cacheError("unsafe_cache_path");
+            // Hard-link publication is atomic and fails rather than replacing a
+            // path created concurrently. The staging file already has mode 0600.
+            await link(stagingPath, targetPath);
+          }
+          await removeIfPresent(stagingPath);
+        });
+      } catch {
         await removeIfPresent(stagingPath);
-      } else {
-        await rename(stagingPath, targetPath);
+        items.push(this.#quarantine(resourceId, "cache_publish_failed", observedBytes));
+        continue;
       }
-      chmodSync(targetPath, 0o600);
 
       const observedMimeType = mimeType(response);
       const warnings = [];

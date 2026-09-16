@@ -8,6 +8,7 @@ const DEFAULT_MAX_BATCH_BYTES = 500 * 1024 * 1024;
 
 const VALUE_FLAGS = new Map([
   ["--site-url", "siteUrl"],
+  ["--profile", "profile"],
   ["--data-dir", "dataDir"],
   ["--archive-root", "archiveRoot"],
   ["--domains", "domains"],
@@ -33,6 +34,7 @@ function defaultDataDir({ env, cwd }) {
     return resolveDirectory(env.MOODLE_CHANGEFEED_DATA_DIR, cwd);
   }
   const home = env.HOME || os.homedir();
+  if (process.platform === "win32") return path.join(env.LOCALAPPDATA || path.join(home, "AppData", "Local"), "moodle-changefeed");
   if (process.platform === "darwin" && home) {
     return path.join(home, "Library", "Application Support", "moodle-changefeed");
   }
@@ -100,6 +102,7 @@ function loadPublicConfigState({
 
   const publicConfig = Object.freeze({
     schemaVersion: 1,
+    profile: flags.profile || env.MOODLE_CHANGEFEED_PROFILE || null,
     siteUrl,
     dataDir,
     archiveRoot,
