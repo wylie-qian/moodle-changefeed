@@ -15,6 +15,7 @@
     "fixtures/",
     "scripts/",
     "README.md",
+    "README.zh-CN.md",
     "SECURITY.md",
     "CHANGELOG.md",
     "LICENSE"

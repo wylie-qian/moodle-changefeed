@@ -1,6 +1,12 @@
 # moodle-changefeed
 
+**English** · [简体中文](README.zh-CN.md)
+
 Read your Moodle courses, existing materials, assignments and announcements from Codex or another MCP client. Keep a local searchable inventory, download verified files, and review later changes separately.
+
+**Start here:** [Install](#install-from-source) → [Sign in](#connect-a-moodle-site) → [Connect Codex](#mcp-configuration) → [Find and read materials](#cli).
+
+Want to try it without an account? Run the [anonymous demo](#60-second-anonymous-demo). Troubleshooting a school connection? See the [supported capabilities and limits](#source-capability-matrix).
 
 ## Problem
 
@@ -25,16 +31,6 @@ Use this checkout's absolute path when configuring clients. The examples below r
 No Moodle account or environment variables are needed. Inspect the interface with `node src/cli/main.mjs --help`, then run the complete synthetic baseline/change/review/archive flow with `node src/cli/main.mjs demo --fixture anonymous/basic`.
 
 The demo deletes its temporary runtime data and never reads the configured data directory. It verifies the local workflow, not your school's connection.
-
-## Architecture
-
-```text
-school authorization -> local account profile -> read-only Moodle adapter
-  -> current material inventory + verified file cache
-  -> deterministic changes -> review ledger -> confirmed delivery adapter
-```
-
-CLI and MCP share the runtime. Listing and reading study materials do not require approval of changefeed items. Review and delivery are a separate workflow.
 
 ## Connect a Moodle site
 
@@ -68,6 +64,8 @@ A profile stores a verified site/account identity and a **plaintext, unencrypted
 Use another profile name for another account or school. Sign in separately on each device; do not send a friend your profile, token, cache or database. The account's local runtime is isolated by its verified site and user ID. A profile belonging to a different account cannot be silently overwritten.
 
 ## CLI
+
+After installation and login, the everyday workflow is **sync → search → inspect → cache → read**. You can ask your configured MCP client to do this, or run the commands below yourself.
 
 Look up existing materials after scanning:
 
@@ -116,7 +114,7 @@ If an agent only receives this README or GitHub URL, it must still perform insta
 
 Copy this request into Codex **after** setup:
 
-> 使用 moodle-changefeed MCP。先调用 agent_bootstrap 检查连接；需要登录时给我本地终端操作步骤，不要索要密码、token 或回调链接。连接正常后扫描 Moodle，列出我的课程，搜索已有学习资料，按返回的资源 ID 缓存并读取我需要的文件。首次 change feed 为空时改用 search_moodle_library，不要判断为没有课程材料。展示同步时间和读取失败范围。不要提交作业、创建后台轮询或对外发送资料。
+> Use the moodle-changefeed MCP. First call agent_bootstrap to check the connection. If sign-in is needed, give me local terminal instructions; do not ask for my password, token, or callback link. Once connected, scan Moodle, list my courses, search existing materials, and use the returned resource IDs to cache and read the files I need. If the first change feed is empty, use search_moodle_library instead of concluding there are no materials. Show the sync time and any unavailable data. Do not submit assignments, start background polling, or send materials to others.
 
 ### Other MCP clients
 
@@ -148,6 +146,28 @@ Ensure the client can locate Node, or use its absolute executable path. Start wi
 
 Support depends on the school's enabled functions and account permissions, not a guessed Moodle version. Schools may disable Mobile/Web Services, restrict token creation or force an unsupported app scheme. This package cannot bypass those restrictions. Report the precise failing step to the institution or use an institution-approved token route.
 
+## Common questions
+
+**I gave Codex the GitHub link. Why are there no Moodle tools?**
+
+The link is documentation, not an installation. Complete the install, login and MCP configuration steps above, then reload your client.
+
+**Login succeeded, but the change feed is empty. Where are my files?**
+
+The first complete scan establishes a baseline. Use `library` or `search_moodle_library` to find existing materials.
+
+**Can my friend use my configuration?**
+
+They can follow these instructions, but must log in with their own account on their own device. Do not share account profiles, tokens or course caches.
+
+**Can it read PDFs or Office files?**
+
+It can download and verify accessible files and return their local paths. Use a document reader for PDF/Office extraction; `read --text` only supports bounded text for supported formats.
+
+**Will it keep syncing automatically?**
+
+No. Run `sync` when you need fresh data, or separately arrange a scheduler. An expired login may require you to sign in again.
+
 ## Review and confirmation model
 
 Review later changes through `feed` and `review show`. Decisions use expected versions; re-read on a conflict. Approval changes local review state only. Browsing, caching and reading your own materials do not need review approval.
@@ -157,6 +177,16 @@ Delivery is separate: prepare a plan, inspect its operations, then obtain a shor
 ## Local archive
 
 The archive adapter writes verified bytes into sanitized logical segments. It uses no-overwrite publication and refuses unknown existing files. Caching is not delivery. The ordinary resource reader returns a verified local path for study; archive receipts use opaque references.
+
+## Architecture
+
+```text
+school authorization -> local account profile -> read-only Moodle adapter
+  -> current material inventory + verified file cache
+  -> deterministic changes -> review ledger -> confirmed delivery adapter
+```
+
+CLI and MCP share the runtime. Listing and reading study materials do not require approval of changefeed items. Review and delivery are a separate workflow.
 
 ## Custom adapter
 

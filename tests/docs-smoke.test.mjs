@@ -156,3 +156,22 @@ test("public docs and repository policy contain release safety boundaries", asyn
   }
   assert.doesNotMatch(workflow, /secrets\.|upload-artifact/);
 });
+
+
+test("English and Chinese onboarding are complete and linked", async () => {
+  const english = await text("README.md");
+  const chinese = await text("README.zh-CN.md");
+  assert.match(english, /\[[^\]]*中文[^\]]*\]\(README\.zh-CN\.md\)/);
+  assert.match(chinese, /\[English\]\(README\.md\)/);
+  const { parseCli } = await import("../src/cli/parse.mjs");
+  for (const document of [english, chinese]) {
+    for (const command of ["login --profile", "sync --profile", "library --profile", "cache --profile", "read RESOURCE_ID", "npm run setup:codex"]) {
+      assert.ok(document.includes(command), `Missing onboarding command: ${command}`);
+    }
+    const commands = [...document.matchAll(/^[ \t]*node src\/cli\/main\.mjs (.+)$/gm)];
+    assert.ok(commands.length >= 8, "Each language needs the complete command workflow");
+    for (const [, command] of commands) {
+      assert.doesNotThrow(() => parseCli(command.trim().split(/\s+/)), command);
+    }
+  }
+});
